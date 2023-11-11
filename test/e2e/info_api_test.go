@@ -71,46 +71,28 @@ func TestInfo(t *testing.T) {
 		Init()
 	testutil.Ok(t, e2e.StartAndWaitReady(q))
 
+	builder1 := labels.NewScratchBuilder(2)
+	builder1.Add("prometheus", "prom-alone1")
+	builder1.Add("replica", "0")
+	builder2 := labels.NewScratchBuilder(2)
+	builder2.Add("prometheus", "prom-alone2")
+	builder2.Add("replica", "0")
+	builder3 := labels.NewScratchBuilder(2)
+	builder3.Add("prometheus", "prom-alone3")
+	builder3.Add("replica", "0")
 	expected := map[string][]query.EndpointStatus{
 		"sidecar": {
 			{
-				Name: "e2e-test-info-sidecar-alone1:9091",
-				LabelSets: []labels.Labels{{
-					{
-						Name:  "prometheus",
-						Value: "prom-alone1",
-					},
-					{
-						Name:  "replica",
-						Value: "0",
-					},
-				}},
+				Name:      "e2e-test-info-sidecar-alone1:9091",
+				LabelSets: []labels.Labels{builder1.Labels()},
 			},
 			{
-				Name: "e2e-test-info-sidecar-alone2:9091",
-				LabelSets: []labels.Labels{{
-					{
-						Name:  "prometheus",
-						Value: "prom-alone2",
-					},
-					{
-						Name:  "replica",
-						Value: "0",
-					},
-				}},
+				Name:      "e2e-test-info-sidecar-alone2:9091",
+				LabelSets: []labels.Labels{builder2.Labels()},
 			},
 			{
-				Name: "e2e-test-info-sidecar-alone3:9091",
-				LabelSets: []labels.Labels{{
-					{
-						Name:  "prometheus",
-						Value: "prom-alone3",
-					},
-					{
-						Name:  "replica",
-						Value: "0",
-					},
-				}},
+				Name:      "e2e-test-info-sidecar-alone3:9091",
+				LabelSets: []labels.Labels{builder3.Labels()},
 			},
 		},
 		"store": {

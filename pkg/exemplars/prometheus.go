@@ -43,7 +43,7 @@ func (p *Prometheus) Exemplars(r *exemplarspb.ExemplarsRequest, s exemplarspb.Ex
 	extLset := p.extLabels()
 	for _, e := range exemplars {
 		// Make sure the returned series labels are sorted.
-		e.SetSeriesLabels(labelpb.ExtendSortedLabels(e.SeriesLabels.PromLabels(), extLset))
+		e.SetSeriesLabels(labelpb.ExtendSortedLabels(e.SeriesLabels.PromLabels(), labelpb.LabelsToToPromLabelSets(extLset)))
 
 		var err error
 		tracing.DoInSpan(s.Context(), "send_exemplars_response", func(_ context.Context) {

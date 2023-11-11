@@ -571,7 +571,7 @@ func (t *MultiTSDB) startTSDB(logger log.Logger, tenantID string, tenant *tenant
 	reg := prometheus.WrapRegistererWith(prometheus.Labels{"tenant": tenantID}, t.reg)
 	reg = NewUnRegisterer(reg)
 
-	initialLset := labelpb.ExtendSortedLabels(t.labels, labels.FromStrings(t.tenantLabelName, tenantID))
+	initialLset := labelpb.ExtendSortedLabels(t.labels, labelpb.LabelsToToPromLabelSets(labels.FromStrings(t.tenantLabelName, tenantID)))
 
 	lset, err := t.extractTenantsLabels(tenantID, initialLset)
 	if err != nil {
@@ -678,7 +678,7 @@ func (t *MultiTSDB) SetHashringConfig(cfg []HashringConfig) error {
 			if t.tenants[tenantID] != nil {
 				updatedTenants = append(updatedTenants, tenantID)
 
-				lset := labelpb.ExtendSortedLabels(t.labels, labels.FromStrings(t.tenantLabelName, tenantID))
+				lset := labelpb.ExtendSortedLabels(t.labels, labelpb.LabelsToToPromLabelSets(labels.FromStrings(t.tenantLabelName, tenantID)))
 
 				if hc.ExternalLabels != nil {
 					extendedLset, err := extendLabels(lset, hc.ExternalLabels, t.logger)
@@ -868,7 +868,7 @@ func (t *MultiTSDB) extractTenantsLabels(tenantID string, initialLset labels.Lab
 			if hc.ExternalLabels != nil {
 				extendedLset, err := extendLabels(initialLset, hc.ExternalLabels, t.logger)
 				if err != nil {
-					return nil, errors.Wrap(err, "failed to extend external labels for tenant "+tenantID)
+					return labels.EmptyLabels(), errors.Wrap(err, "failed to extend external labels for tenant "+tenantID)
 				}
 				return extendedLset, nil
 			}
@@ -884,37 +884,44 @@ func (t *MultiTSDB) extractTenantsLabels(tenantID string, initialLset labels.Lab
 // If an external label shares same name with a label in the initial label set,
 // use the label in the initial label set and inform user about it.
 func extendLabels(labelSet labels.Labels, extend map[string]string, logger log.Logger) (labels.Labels, error) {
-	var extendLabels labels.Labels
+	var extendLabels []labels.Label
+	labelSetArray := labelpb.LabelsToToPromLabelSets(labelSet)
 	for name, value := range extend {
 		if !model.LabelName.IsValid(model.LabelName(name)) {
-			return nil, errors.Errorf("unsupported format for label's name: %s", name)
+			return labels.EmptyLabels(), errors.Errorf("unsupported format for label's name: %s", name)
 		}
 		extendLabels = append(extendLabels, labels.Label{Name: name, Value: value})
 	}
 
-	sort.Sort(labelSet)
-	sort.Sort(extendLabels)
+	slices.SortFunc(labelSetArray, func(a, b labels.Label) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(extendLabels, func(a, b labels.Label) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
-	extendedLabelSet := make(labels.Labels, 0, len(labelSet)+len(extendLabels))
-	for len(labelSet) > 0 && len(extendLabels) > 0 {
-		d := strings.Compare(labelSet[0].Name, extendLabels[0].Name)
+	extendedLabelSet := make([]labels.Label, 0, len(labelSetArray)+len(extendLabels))
+	for len(labelSetArray) > 0 && len(extendLabels) > 0 {
+		d := strings.Compare(labelSetArray[0].Name, extendLabels[0].Name)
 		if d == 0 {
-			extendedLabelSet = append(extendedLabelSet, labelSet[0])
+			extendedLabelSet = append(extendedLabelSet, labelSetArray[0])
 			level.Info(logger).Log("msg", "Duplicate label found. Using initial label instead.",
 				"label's name", extendLabels[0].Name)
-			labelSet, extendLabels = labelSet[1:], extendLabels[1:]
+			labelSetArray, extendLabels = labelSetArray[1:], extendLabels[1:]
 		} else if d < 0 {
-			extendedLabelSet = append(extendedLabelSet, labelSet[0])
-			labelSet = labelSet[1:]
+			extendedLabelSet = append(extendedLabelSet, labelSetArray[0])
+			labelSetArray = labelSetArray[1:]
 		} else if d > 0 {
 			extendedLabelSet = append(extendedLabelSet, extendLabels[0])
 			extendLabels = extendLabels[1:]
 		}
 	}
-	extendedLabelSet = append(extendedLabelSet, labelSet...)
+	extendedLabelSet = append(extendedLabelSet, labelSetArray...)
 	extendedLabelSet = append(extendedLabelSet, extendLabels...)
 
-	sort.Sort(extendedLabelSet)
+	slices.SortFunc(extendedLabelSet, func(a, b labels.Label) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
-	return extendedLabelSet, nil
+	return labels.New(extendedLabelSet...), nil
 }

@@ -212,7 +212,7 @@ func (s *TSDBStore) Series(r *storepb.SeriesRequest, seriesSrv storepb.Store_Ser
 	for set.Next() {
 		series := set.At()
 
-		completeLabelset := labelpb.ExtendSortedLabels(rmLabels(series.Labels(), extLsetToRemove), finalExtLset)
+		completeLabelset := labelpb.ExtendSortedLabels(rmLabels(series.Labels(), extLsetToRemove), labelpb.LabelsToToPromLabelSets(finalExtLset))
 		if !shardMatcher.MatchesLabels(completeLabelset) {
 			continue
 		}
@@ -309,9 +309,9 @@ func (s *TSDBStore) LabelNames(ctx context.Context, r *storepb.LabelNamesRequest
 	}
 
 	if len(res) > 0 {
-		for _, lbl := range s.getExtLset() {
-			res = append(res, lbl.Name)
-		}
+		s.getExtLset().Range(func(l labels.Label) {
+			res = append(res, l.Name)
+		})
 		sort.Strings(res)
 	}
 

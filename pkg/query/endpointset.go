@@ -789,12 +789,15 @@ func (er *endpointRef) labelSets() []labels.Labels {
 	}
 
 	labelSet := make([]labels.Labels, 0, len(er.metadata.LabelSets))
+
 	for _, ls := range labelpb.ZLabelSetsToPromLabelSets(er.metadata.LabelSets...) {
-		if len(ls) == 0 {
+		if ls.Len() == 0 {
 			continue
 		}
+
 		// Compatibility label for Queriers pre 0.8.1. Filter it out now.
-		if ls[0].Name == store.CompatibilityTypeLabelName {
+		//TODO: have to check if it is ok to look up everywhere or need to be first
+		if len(ls.Get(store.CompatibilityTypeLabelName)) > 0 {
 			continue
 		}
 		labelSet = append(labelSet, ls.Copy())

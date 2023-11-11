@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"sort"
 	"testing"
 	"time"
 
@@ -541,24 +540,71 @@ func TestRangeQueryShardingWithRandomData(t *testing.T) {
 
 	now := model.Now()
 	ctx := context.Background()
-	timeSeries := []labels.Labels{
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "1"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "1"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "2"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "2"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "3"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "3"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "4"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "4"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "5"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "5"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "6"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "6"}, {Name: "handler", Value: "/metrics"}},
-	}
+	var timeSeries []labels.Labels
+	builder := labels.NewScratchBuilder(2)
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "1")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "1")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "2")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "2")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "3")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "3")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "4")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "4")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "5")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "5")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "6")
+	builder.Add("handler", "/")
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "6")
+	builder.Add("handler", "/metrics")
+	timeSeries = append(timeSeries, builder.Labels())
 
 	startTime := now.Time().Add(-1 * time.Hour)
 	endTime := now.Time().Add(1 * time.Hour)
-	_, err = e2eutil.CreateBlock(ctx, prom.Dir(), timeSeries, 20, timestamp.FromTime(startTime), timestamp.FromTime(endTime), nil, 0, metadata.NoneFunc)
+	_, err = e2eutil.CreateBlock(ctx, prom.Dir(), timeSeries, 20, timestamp.FromTime(startTime), timestamp.FromTime(endTime), labels.EmptyLabels(), 0, metadata.NoneFunc)
 	testutil.Ok(t, err)
 	testutil.Ok(t, e2e.StartAndWaitReady(prom, sidecar))
 
@@ -706,31 +752,83 @@ func TestInstantQueryShardingWithRandomData(t *testing.T) {
 
 	now := model.Now()
 	ctx := context.Background()
-	timeSeries := []labels.Labels{
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "1"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "1"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "2"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "2"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "3"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "3"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "4"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "4"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "5"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "5"}, {Name: "handler", Value: "/metrics"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "6"}, {Name: "handler", Value: "/"}},
-		{{Name: labels.MetricName, Value: "http_requests_total"}, {Name: "pod", Value: "6"}, {Name: "handler", Value: "/metrics"}},
-	}
-
-	// Ensure labels are ordered.
-	for _, ts := range timeSeries {
-		sort.Slice(ts, func(i, j int) bool {
-			return ts[i].Name < ts[j].Name
-		})
-	}
+	var timeSeries []labels.Labels
+	builder := labels.NewScratchBuilder(2)
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "1")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "1")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "2")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "2")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "3")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "3")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "4")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "4")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "5")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "5")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "6")
+	builder.Add("handler", "/")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
+	builder.Reset()
+	builder.Add(labels.MetricName, "http_requests_total")
+	builder.Add("pod", "6")
+	builder.Add("handler", "/metrics")
+	builder.Sort()
+	timeSeries = append(timeSeries, builder.Labels())
 
 	startTime := now.Time().Add(-1 * time.Hour)
 	endTime := now.Time().Add(1 * time.Hour)
-	_, err = e2eutil.CreateBlock(ctx, prom.Dir(), timeSeries, 20, timestamp.FromTime(startTime), timestamp.FromTime(endTime), nil, 0, metadata.NoneFunc)
+	_, err = e2eutil.CreateBlock(ctx, prom.Dir(), timeSeries, 20, timestamp.FromTime(startTime), timestamp.FromTime(endTime), labels.EmptyLabels(), 0, metadata.NoneFunc)
 	testutil.Ok(t, err)
 	testutil.Ok(t, e2e.StartAndWaitReady(prom, sidecar))
 

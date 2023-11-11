@@ -92,6 +92,14 @@ func ZLabelSetsToPromLabelSets(lss ...ZLabelSet) []labels.Labels {
 	return res
 }
 
+func LabelsToToPromLabelSets(lss labels.Labels) []labels.Label {
+	var labelSet = make([]labels.Label, lss.Len())
+	lss.Range(func(l labels.Label) {
+		labelSet = append(labelSet, l)
+	})
+	return labelSet
+}
+
 // ZLabelSetsFromPromLabels converts []labels.labels to []labelpb.ZLabelSet.
 func ZLabelSetsFromPromLabels(lss ...labels.Labels) []ZLabelSet {
 	sets := make([]ZLabelSet, 0, len(lss))

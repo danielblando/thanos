@@ -668,12 +668,11 @@ func (s *BucketStore) SyncBlocks(ctx context.Context) error {
 	}
 
 	// Sync advertise labels.
-	var storeLabels labels.Labels
 	s.mtx.Lock()
 	s.advLabelSets = make([]labelpb.ZLabelSet, 0, len(s.advLabelSets))
 	for _, bs := range s.blockSets {
-		storeLabels = storeLabels[:0]
-		s.advLabelSets = append(s.advLabelSets, labelpb.ZLabelSet{Labels: labelpb.ZLabelsFromPromLabels(append(storeLabels, bs.labels...))})
+		//Need to rework this copy
+		s.advLabelSets = append(s.advLabelSets, labelpb.ZLabelSet{Labels: labelpb.ZLabelsFromPromLabels(bs.labels.Copy())})
 	}
 	sort.Slice(s.advLabelSets, func(i, j int) bool {
 		return strings.Compare(s.advLabelSets[i].String(), s.advLabelSets[j].String()) < 0
@@ -1200,7 +1199,7 @@ OUTER:
 			b.expandedPostings = append(b.expandedPostings, postingsBatch[i])
 		}
 
-		completeLabelset := labelpb.ExtendSortedLabels(b.lset, b.extLset)
+		completeLabelset := labelpb.ExtendSortedLabels(b.lset, labelpb.LabelsToToPromLabelSets(b.extLset))
 		if b.extLsetToRemove != nil {
 			completeLabelset = rmLabels(completeLabelset, b.extLsetToRemove)
 		}
@@ -1747,10 +1746,10 @@ func (s *BucketStore) LabelNames(ctx context.Context, req *storepb.LabelNamesReq
 				// Add  a set for the external labels as well.
 				// We're not adding them directly to refs because there could be duplicates.
 				// b.extLset is already sorted by label name, no need to sort it again.
-				extRes := make([]string, 0, len(b.extLset))
-				for _, l := range b.extLset {
+				extRes := make([]string, 0, b.extLset.Len())
+				b.extLset.Range(func(l labels.Label) {
 					extRes = append(extRes, l.Name)
-				}
+				})
 
 				result = strutil.MergeSlices(res, extRes)
 			} else {
@@ -2240,6 +2239,16 @@ func newBucketBlock(
 	if maxChunkSizeFunc != nil {
 		maxChunkSize = int(maxChunkSizeFunc(*meta))
 	}
+
+	scratch := labels.NewScratchBuilder(len(meta.Thanos.Labels))
+	b.extLset.Range(func(l labels.Label) {
+		scratch.Add(l.Name, l.Value)
+	})
+	scratch.Sort()
+	extLset := scratch.Labels()
+	scratch.Add(block.BlockIDLabel, meta.ULID.String())
+	scratch.Sort()
+
 	b = &bucketBlock{
 		logger:            logger,
 		metrics:           metrics,
@@ -2250,18 +2259,13 @@ func newBucketBlock(
 		partitioner:       p,
 		meta:              meta,
 		indexHeaderReader: indexHeadReader,
-		extLset:           labels.FromMap(meta.Thanos.Labels),
+		extLset:           extLset,
 		// Translate the block's labels and inject the block ID as a label
 		// to allow to match blocks also by ID.
-		relabelLabels: append(labels.FromMap(meta.Thanos.Labels), labels.Label{
-			Name:  block.BlockIDLabel,
-			Value: meta.ULID.String(),
-		}),
+		relabelLabels:          scratch.Labels(),
 		estimatedMaxSeriesSize: maxSeriesSize,
 		estimatedMaxChunkSize:  maxChunkSize,
 	}
-	sort.Sort(b.extLset)
-	sort.Sort(b.relabelLabels)
 
 	// Get object handles for all chunk files (segment files) from meta.json, if available.
 	if len(meta.Thanos.SegmentFiles) > 0 {
@@ -3247,7 +3251,7 @@ func (r *bucketIndexReader) Close() error {
 
 // LookupLabelsSymbols allows populates label set strings from symbolized label set.
 func (r *bucketIndexReader) LookupLabelsSymbols(ctx context.Context, symbolized []symbolizedLabel, lbls *labels.Labels) error {
-	*lbls = (*lbls)[:0]
+	scratcher := labels.NewScratchBuilder(len(symbolized))
 	for _, s := range symbolized {
 		ln, err := r.dec.LookupSymbol(ctx, s.name)
 		if err != nil {
@@ -3257,8 +3261,9 @@ func (r *bucketIndexReader) LookupLabelsSymbols(ctx context.Context, symbolized 
 		if err != nil {
 			return errors.Wrap(err, "lookup label value")
 		}
-		*lbls = append(*lbls, labels.Label{Name: ln, Value: lv})
+		scratcher.Add(ln, lv)
 	}
+	*lbls = scratcher.Labels()
 	return nil
 }
 

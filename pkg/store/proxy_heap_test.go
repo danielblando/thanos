@@ -314,12 +314,12 @@ func labelsFromStrings(ss ...string) labels.Labels {
 	if len(ss)%2 != 0 {
 		panic("invalid number of strings")
 	}
-	res := make(labels.Labels, 0, len(ss)/2)
+	res := make([]labels.Label, 0, len(ss)/2)
 	for i := 0; i < len(ss); i += 2 {
 		res = append(res, labels.Label{Name: ss[i], Value: ss[i+1]})
 	}
 
-	return res
+	return labels.New(res...)
 }
 
 func BenchmarkSortWithoutLabels(b *testing.B) {

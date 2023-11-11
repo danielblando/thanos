@@ -386,9 +386,9 @@ func newLazyRespSet(
 	}
 	respSet.storeLabels = make(map[string]struct{})
 	for _, ls := range storeLabelSets {
-		for _, l := range ls {
+		ls.Range(func(l labels.Label) {
 			respSet.storeLabels[l.Name] = struct{}{}
-		}
+		})
 	}
 
 	go func(st string, l *lazyRespSet) {
@@ -665,9 +665,9 @@ func newEagerRespSet(
 	}
 	ret.storeLabels = make(map[string]struct{})
 	for _, ls := range storeLabelSets {
-		for _, l := range ls {
+		ls.Range(func(l labels.Label) {
 			ret.storeLabels[l.Name] = struct{}{}
-		}
+		})
 	}
 
 	ret.wg.Add(1)
@@ -766,14 +766,14 @@ func newEagerRespSet(
 }
 
 func rmLabels(l labels.Labels, labelsToRemove map[string]struct{}) labels.Labels {
-	for i := 0; i < len(l); i++ {
-		if _, ok := labelsToRemove[l[i].Name]; !ok {
-			continue
+	builder := labels.NewBuilder(l)
+	l.Range(func(l labels.Label) {
+		if _, ok := labelsToRemove[l.Name]; !ok {
+			return
 		}
-		l = append(l[:i], l[i+1:]...)
-		i--
-	}
-	return l
+		builder.Del(l.Name)
+	})
+	return builder.Labels()
 }
 
 // sortWithoutLabels removes given labels from series and re-sorts the series responses that the same

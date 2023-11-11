@@ -53,7 +53,7 @@ type HeadGenOptions struct {
 	ScrapeInterval           time.Duration
 
 	WithWAL       bool
-	PrependLabels labels.Labels
+	PrependLabels []labels.Label
 	SkipChunks    bool // Skips chunks in returned slice (not in generated head!).
 	SampleType    chunkenc.ValueType
 
@@ -127,7 +127,7 @@ func CreateHeadWithSeries(t testing.TB, j int, opts HeadGenOptions) (*tsdb.Head,
 	return h, ReadSeriesFromBlock(t, h, opts.PrependLabels, opts.SkipChunks)
 }
 
-func ReadSeriesFromBlock(t testing.TB, h tsdb.BlockReader, extLabels labels.Labels, skipChunks bool) []*storepb.Series {
+func ReadSeriesFromBlock(t testing.TB, h tsdb.BlockReader, extLabels []labels.Label, skipChunks bool) []*storepb.Series {
 	// Use TSDB and get all series for assertion.
 	chks, err := h.Chunks()
 	testutil.Ok(t, err)
