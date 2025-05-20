@@ -78,6 +78,7 @@ type Shipper struct {
 
 	uploadCompactedFunc    func() bool
 	allowOutOfOrderUploads bool
+	ingoreCorruptedBlocks  bool
 	hashFunc               metadata.HashFunc
 
 	labels func() labels.Labels
@@ -96,6 +97,7 @@ func New(
 	source metadata.SourceType,
 	uploadCompactedFunc func() bool,
 	allowOutOfOrderUploads bool,
+	ingoreCorruptedBlocks bool,
 	hashFunc metadata.HashFunc,
 	metaFileName string,
 ) *Shipper {
@@ -123,6 +125,7 @@ func New(
 		metrics:                newMetrics(r),
 		source:                 source,
 		allowOutOfOrderUploads: allowOutOfOrderUploads,
+		ingoreCorruptedBlocks:  ingoreCorruptedBlocks,
 		uploadCompactedFunc:    uploadCompactedFunc,
 		hashFunc:               hashFunc,
 		metadataFilePath:       filepath.Join(dir, filepath.Clean(metaFileName)),
@@ -152,7 +155,7 @@ func (s *Shipper) Timestamps() (minTime, maxSyncTime int64, err error) {
 	minTime = math.MaxInt64
 	maxSyncTime = math.MinInt64
 
-	metas, err := s.blockMetasFromOldest()
+	metas, _, err := s.blockMetasFromOldest()
 	if err != nil {
 		return 0, 0, err
 	}
@@ -276,10 +279,13 @@ func (s *Shipper) Sync(ctx context.Context) (uploaded int, err error) {
 	)
 
 	uploadCompacted := s.uploadCompactedFunc()
-	metas, err := s.blockMetasFromOldest()
-	if err != nil {
+	metas, failedBlocks, err := s.blockMetasFromOldest()
+	// Ignore error when there are failed blocks and we should ignore them
+	if err != nil && (len(failedBlocks) == 0 || !s.ingoreCorruptedBlocks) {
+		s.metrics.dirSyncFailures.Inc()
 		return 0, err
 	}
+
 	for _, m := range metas {
 		// Do not sync a block if we already uploaded or ignored it. If it's no longer found in the bucket,
 		// it was generally removed by the compaction process.
@@ -304,7 +310,13 @@ func (s *Shipper) Sync(ctx context.Context) (uploaded int, err error) {
 		// Check against bucket if the meta file for this block exists.
 		ok, err := s.bucket.Exists(ctx, path.Join(m.ULID.String(), block.MetaFilename))
 		if err != nil {
-			return 0, errors.Wrap(err, "check exists")
+			if s.ingoreCorruptedBlocks {
+				s.metrics.uploadFailures.Inc()
+				level.Warn(s.logger).Log("msg", "check exists failure", "err", err, "ULID", m.ULID.String())
+				continue
+			}
+			s.metrics.dirSyncFailures.Inc()
+			return uploaded, errors.Wrapf(err, "check exists - ulid: %s", m.ULID.String())
 		}
 		if ok {
 			meta.Uploaded = append(meta.Uploaded, m.ULID)
@@ -314,13 +326,15 @@ func (s *Shipper) Sync(ctx context.Context) (uploaded int, err error) {
 		// Skip overlap check if out of order uploads is enabled.
 		if m.Compaction.Level > 1 && !s.allowOutOfOrderUploads {
 			if err := checker.IsOverlapping(ctx, m.BlockMeta); err != nil {
-				return 0, errors.Errorf("Found overlap or error during sync, cannot upload compacted block, details: %v", err)
+				s.metrics.dirSyncFailures.Inc()
+				return uploaded, errors.Errorf("Found overlap or error during sync, cannot upload compacted block, details: %v", err)
 			}
 		}
 
 		if err := s.upload(ctx, m); err != nil {
 			if !s.allowOutOfOrderUploads {
-				return 0, errors.Wrapf(err, "upload %v", m.ULID)
+				s.metrics.dirSyncFailures.Inc()
+				return uploaded, errors.Wrapf(err, "upload %v", m.ULID)
 			}
 
 			// No error returned, just log line. This is because we want other blocks to be uploaded even
@@ -341,6 +355,9 @@ func (s *Shipper) Sync(ctx context.Context) (uploaded int, err error) {
 	if uploadErrs > 0 {
 		s.metrics.uploadFailures.Add(float64(uploadErrs))
 		return uploaded, errors.Errorf("failed to sync %v blocks", uploadErrs)
+	} else if len(failedBlocks) > 0 {
+		s.metrics.uploadFailures.Add(float64(len(failedBlocks)))
+		return uploaded, errors.Errorf("failed to sync %v blocks", failedBlocks)
 	}
 
 	if uploadCompacted {
@@ -348,6 +365,7 @@ func (s *Shipper) Sync(ctx context.Context) (uploaded int, err error) {
 	} else {
 		s.metrics.uploadedCompacted.Set(0)
 	}
+
 	return uploaded, nil
 }
 
@@ -408,12 +426,13 @@ func (s *Shipper) upload(ctx context.Context, meta *metadata.Meta) error {
 
 // blockMetasFromOldest returns the block meta of each block found in dir
 // sorted by minTime asc.
-func (s *Shipper) blockMetasFromOldest() (metas []*metadata.Meta, _ error) {
+func (s *Shipper) blockMetasFromOldest() (metas []*metadata.Meta, failedBlocks []string, _ error) {
 	fis, err := os.ReadDir(s.dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "read dir")
+		return nil, nil, errors.Wrap(err, "read dir")
 	}
 	names := make([]string, 0, len(fis))
+	var initialErr error
 	for _, fi := range fis {
 		names = append(names, fi.Name())
 	}
@@ -425,21 +444,32 @@ func (s *Shipper) blockMetasFromOldest() (metas []*metadata.Meta, _ error) {
 
 		fi, err := os.Stat(dir)
 		if err != nil {
-			return nil, errors.Wrapf(err, "stat block %v", dir)
+			if initialErr == nil {
+				initialErr = err
+			}
+			failedBlocks = append(failedBlocks, n)
+			continue
 		}
 		if !fi.IsDir() {
 			continue
 		}
 		m, err := metadata.ReadFromDir(dir)
 		if err != nil {
-			return nil, errors.Wrapf(err, "read metadata for block %v", dir)
+			if initialErr == nil {
+				initialErr = err
+			}
+			failedBlocks = append(failedBlocks, n)
+			continue
 		}
 		metas = append(metas, m)
 	}
 	sort.Slice(metas, func(i, j int) bool {
 		return metas[i].BlockMeta.MinTime < metas[j].BlockMeta.MinTime
 	})
-	return metas, nil
+	if len(failedBlocks) > 0 {
+		initialErr = errors.Wrapf(initialErr, "failed blocks %v", failedBlocks)
+	}
+	return metas, failedBlocks, initialErr
 }
 
 func hardlinkBlock(src, dst string) error {
